@@ -186,6 +186,9 @@ dependencies = [
 [[package]]
 name = "umark"
 version = "0.1.0"
+dependencies = [
+ "umark-lib",
+]
 
 [[package]]
 name = "umark-lib"
