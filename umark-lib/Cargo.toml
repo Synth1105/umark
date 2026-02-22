@@ -2,6 +2,6 @@
 name = "umark-lib"
 version = "0.1.0"
 edition = "2021"
-license = "MIT OR Apache 2.0"
+license = "MIT"
 description = "A Markdown Parser written in rust"
 [dependencies]
