@@ -6,9 +6,15 @@ version = 4
 name = "umark"
 version = "0.1.0"
 dependencies = [
- "umark-lib",
+ "umark-lib 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
 name = "umark-lib"
 version = "0.1.0"
+
+[[package]]
+name = "umark-lib"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "df60940ccffd7caca9ebe7b61cae73e975e2ad2d39a0c76a635a696a333c2fca"

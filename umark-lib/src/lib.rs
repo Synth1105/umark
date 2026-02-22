@@ -1,11 +1,41 @@
+//! `umark-lib` is a lightweight Markdown-to-HTML parser implemented in Rust.
+//!
+//! It exposes two parsing modes:
+//! - regular parsing (`parse*`): keeps inline/raw HTML
+//! - safe parsing (`safe_parse*`): rejects script tags and any raw HTML
+//!
+//! # Flavor overview
+//! - `MarkdownFlavor::CommonMark`: core CommonMark-style behavior
+//! - `MarkdownFlavor::Gfm`: CommonMark + tables, task lists, strikethrough,
+//!   literal autolinks, footnotes, and Mermaid chart blocks
+//!
+//! # Quick example
+//! ```
+//! use umark_lib::parse;
+//!
+//! let html = parse("# Hello");
+//! assert!(html.contains("<h1>Hello</h1>"));
+//! ```
+//!
+//! # Safe parsing example
+//! ```
+//! use umark_lib::safe_parse;
+//!
+//! assert!(safe_parse("plain text").is_ok());
+//! assert!(safe_parse("x <span>y</span>").is_err());
+//! ```
+//!
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::fmt;
 use std::fs;
 
+/// Controls which Markdown feature set is enabled during parsing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MarkdownFlavor {
+    /// Parse with CommonMark-style baseline features.
     CommonMark,
+    /// Parse with GitHub Flavored Markdown extensions enabled.
     Gfm,
 }
 
@@ -78,20 +108,61 @@ struct Parser<'a> {
     config: ParserConfig,
 }
 
-/// Parse markdown with default flavor (GFM) and return HTML.
+/// Parse Markdown with the default flavor (`MarkdownFlavor::Gfm`) and return HTML.
+///
+/// # Examples
+/// ```
+/// use umark_lib::parse;
+///
+/// let html = parse("~~done~~");
+/// assert!(html.contains("<del>done</del>"));
+/// ```
 pub fn parse(input: &str) -> String {
     parse_with_flavor(input, MarkdownFlavor::Gfm)
 }
 
-/// Parse markdown using the requested flavor and return HTML.
+/// Parse Markdown with an explicit flavor and return HTML.
+///
+/// # Examples
+/// ```
+/// use umark_lib::{parse_with_flavor, MarkdownFlavor};
+///
+/// let gfm = parse_with_flavor("| a | b |\n|---|---|\n| 1 | 2 |", MarkdownFlavor::Gfm);
+/// let commonmark = parse_with_flavor("| a | b |\n|---|---|\n| 1 | 2 |", MarkdownFlavor::CommonMark);
+///
+/// assert!(gfm.contains("<table>"));
+/// assert!(!commonmark.contains("<table>"));
+/// ```
 pub fn parse_with_flavor(input: &str, flavor: MarkdownFlavor) -> String {
     parse_internal(input, ParserConfig::from_flavor(flavor))
 }
 
+/// Parse Markdown safely with the default flavor (`MarkdownFlavor::Gfm`).
+///
+/// This rejects:
+/// - `<script ...>` tags (case-insensitive)
+/// - any raw HTML blocks or inline raw HTML tags
+///
+/// # Examples
+/// ```
+/// use umark_lib::safe_parse;
+///
+/// assert!(safe_parse("**safe** text").is_ok());
+/// assert!(safe_parse("<script>alert(1)</script>").is_err());
+/// ```
 pub fn safe_parse(input: &str) -> Result<String, Box<dyn Error>> {
     safe_parse_with_flavor(input, MarkdownFlavor::Gfm)
 }
 
+/// Parse Markdown safely with an explicit flavor.
+///
+/// # Examples
+/// ```
+/// use umark_lib::{safe_parse_with_flavor, MarkdownFlavor};
+///
+/// let html = safe_parse_with_flavor("~~x~~", MarkdownFlavor::CommonMark).unwrap();
+/// assert!(!html.contains("<del>x</del>"));
+/// ```
 pub fn safe_parse_with_flavor(
     input: &str,
     flavor: MarkdownFlavor,
@@ -107,10 +178,63 @@ pub fn safe_parse_with_flavor(
     Ok(rendered)
 }
 
+/// Parse Markdown from a file and write rendered HTML to another file using GFM.
+///
+/// In GFM mode, if Mermaid chart blocks are detected, a Mermaid runtime bootstrap
+/// script is appended so charts can render when opening the output file in a browser.
+///
+/// # Examples
+/// ```
+/// use std::time::{SystemTime, UNIX_EPOCH};
+/// use umark_lib::parse_from_file;
+///
+/// let suffix = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+/// let mut input = std::env::temp_dir();
+/// let mut output = std::env::temp_dir();
+/// input.push(format!("umark_parse_input_{suffix}.md"));
+/// output.push(format!("umark_parse_output_{suffix}.html"));
+///
+/// std::fs::write(&input, "# Title").unwrap();
+/// parse_from_file(input.to_str().unwrap(), output.to_str().unwrap()).unwrap();
+///
+/// let html = std::fs::read_to_string(&output).unwrap();
+/// assert!(html.contains("<h1>Title</h1>"));
+///
+/// let _ = std::fs::remove_file(&input);
+/// let _ = std::fs::remove_file(&output);
+/// ```
 pub fn parse_from_file(path: &str, output_path: &str) -> Result<(), Box<dyn Error>> {
     parse_from_file_with_flavor(path, output_path, MarkdownFlavor::Gfm)
 }
 
+/// Parse Markdown from a file with an explicit flavor and write HTML to a file.
+///
+/// In GFM mode, Mermaid runtime bootstrap is appended only when Mermaid blocks are found.
+///
+/// # Examples
+/// ```
+/// use std::time::{SystemTime, UNIX_EPOCH};
+/// use umark_lib::{parse_from_file_with_flavor, MarkdownFlavor};
+///
+/// let suffix = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+/// let mut input = std::env::temp_dir();
+/// let mut output = std::env::temp_dir();
+/// input.push(format!("umark_parse_flavor_input_{suffix}.md"));
+/// output.push(format!("umark_parse_flavor_output_{suffix}.html"));
+///
+/// std::fs::write(&input, "| a | b |\n|---|---|\n| 1 | 2 |").unwrap();
+/// parse_from_file_with_flavor(
+///     input.to_str().unwrap(),
+///     output.to_str().unwrap(),
+///     MarkdownFlavor::CommonMark,
+/// ).unwrap();
+///
+/// let html = std::fs::read_to_string(&output).unwrap();
+/// assert!(!html.contains("<table>"));
+///
+/// let _ = std::fs::remove_file(&input);
+/// let _ = std::fs::remove_file(&output);
+/// ```
 pub fn parse_from_file_with_flavor(
     path: &str,
     output_path: &str,
@@ -123,10 +247,55 @@ pub fn parse_from_file_with_flavor(
     Ok(())
 }
 
+/// Safely parse Markdown from a file and write output HTML with default GFM flavor.
+///
+/// This enforces the same safety rules as [`safe_parse`].
+///
+/// # Examples
+/// ```
+/// use std::time::{SystemTime, UNIX_EPOCH};
+/// use umark_lib::safe_parse_from_file;
+///
+/// let suffix = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+/// let mut input = std::env::temp_dir();
+/// let mut output = std::env::temp_dir();
+/// input.push(format!("umark_safe_input_{suffix}.md"));
+/// output.push(format!("umark_safe_output_{suffix}.html"));
+///
+/// std::fs::write(&input, "safe text").unwrap();
+/// assert!(safe_parse_from_file(input.to_str().unwrap(), output.to_str().unwrap()).is_ok());
+///
+/// let _ = std::fs::remove_file(&input);
+/// let _ = std::fs::remove_file(&output);
+/// ```
 pub fn safe_parse_from_file(path: &str, output_path: &str) -> Result<(), Box<dyn Error>> {
     safe_parse_from_file_with_flavor(path, output_path, MarkdownFlavor::Gfm)
 }
 
+/// Safely parse Markdown from a file with an explicit flavor and write HTML to a file.
+///
+/// # Examples
+/// ```
+/// use std::time::{SystemTime, UNIX_EPOCH};
+/// use umark_lib::{safe_parse_from_file_with_flavor, MarkdownFlavor};
+///
+/// let suffix = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+/// let mut input = std::env::temp_dir();
+/// let mut output = std::env::temp_dir();
+/// input.push(format!("umark_safe_flavor_input_{suffix}.md"));
+/// output.push(format!("umark_safe_flavor_output_{suffix}.html"));
+///
+/// std::fs::write(&input, "<div>raw html</div>").unwrap();
+/// let result = safe_parse_from_file_with_flavor(
+///     input.to_str().unwrap(),
+///     output.to_str().unwrap(),
+///     MarkdownFlavor::Gfm,
+/// );
+/// assert!(result.is_err());
+///
+/// let _ = std::fs::remove_file(&input);
+/// let _ = std::fs::remove_file(&output);
+/// ```
 pub fn safe_parse_from_file_with_flavor(
     path: &str,
     output_path: &str,
@@ -1814,7 +1983,8 @@ mod tests {
     fn keeps_mermaid_as_code_in_commonmark() {
         let md = "```mermaid\nflowchart TD\nA-->B\n```";
         let html = parse_with_flavor(md, MarkdownFlavor::CommonMark);
-        assert!(html.contains("<pre><code class=\"language-mermaid\">flowchart TD\nA--&gt;B</code></pre>"));
+        assert!(html
+            .contains("<pre><code class=\"language-mermaid\">flowchart TD\nA--&gt;B</code></pre>"));
     }
 
     #[test]
